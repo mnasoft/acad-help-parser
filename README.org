@@ -1,11 +1,14 @@
 #+TITLE: acad-help-parser
 
-Common Lisp parser for Autodesk ActiveX reference XHTML pages using Plump and CLSS.
+Common Lisp parser and loader for Autodesk ActiveX reference pages.
 
 * Dependencies
 
 - plump
 - clss
+- dexador
+- jonathan
+- cl-ppcre
 
 * Load
 
@@ -13,15 +16,103 @@ Common Lisp parser for Autodesk ActiveX reference XHTML pages using Plump and CL
 (ql:quickload :acad-help-parser)
 #+end_src
 
-* Example
+* Autodesk loader
 
 #+begin_src lisp
 (defparameter *circle*
-  (acad-help-parser:parse-activex-class #p"/path/to/circle.htm"))
+  (acad-help-parser:fetch-activex-class
+   "https://help.autodesk.com/view/ACD/2027/ENU/?guid=GUID-18ADF171-166F-4FF0-8ED6-5F83153A5649"))
 
 (acad-help-parser:activex-class-name *circle*)
+;; => "AcadCircle"
+
 (acad-help-parser:activex-class-topic-id *circle*)
+;; => "GUID-18ADF171-166F-4FF0-8ED6-5F83153A5649"
+#+end_src
+
+The loader performs:
+
+#+begin_example
+view URL -> bookmark API -> CloudHelp XHTML -> Plump -> activex-class
+#+end_example
+
+Intermediate functions:
+
+#+begin_src lisp
+(acad-help-parser:parse-autodesk-help-url *url*)
+(acad-help-parser:resolve-autodesk-article-url *url*)
+(acad-help-parser:fetch-activex-document *url*)
+#+end_src
+
+* Local page
+
+#+begin_src lisp
+(acad-help-parser:parse-activex-class #p"/path/to/circle.htm")
+#+end_src
+
+* Example session in SLY
+
+The following example loads the project, resolves an Autodesk Help URL,
+downloads the underlying ActiveX XHTML page, and parses it.
+
+#+begin_src lisp
+(ql:quickload :acad-help-parser)
+
+(defparameter *url*
+  "https://help.autodesk.com/view/ACD/2027/ENU/?guid=GUID-18ADF171-166F-4FF0-8ED6-5F83153A5649")
+
+(defparameter *circle*
+  (acad-help-parser:fetch-activex-class *url*))
+
+(acad-help-parser:activex-class-name *circle*)
+;; => "AcadCircle"
+
+(acad-help-parser:activex-class-title *circle*)
+;; => "Circle Object (ActiveX)"
+
+(acad-help-parser:activex-class-topic-id *circle*)
+;; => "GUID-18ADF171-166F-4FF0-8ED6-5F83153A5649"
+
+(acad-help-parser:activex-class-context-id *circle*)
+;; => "IDH_CIRCLE_OBJECT"
 
 (mapcar #'acad-help-parser:activex-member-name
         (acad-help-parser:activex-class-methods *circle*))
+;; => ("ArrayPolar" "ArrayRectangular" "Copy" ...)
+
+(mapcar #'acad-help-parser:activex-member-name
+        (acad-help-parser:activex-class-properties *circle*))
+;; => ("Application" "Area" "Center" ...)
+
+(mapcar #'acad-help-parser:activex-member-name
+        (acad-help-parser:activex-class-events *circle*))
+;; => ("Modified")
+#+end_src
+
+For debugging the loading chain, each stage can also be called separately:
+
+#+begin_src lisp
+(defparameter *descriptor*
+  (acad-help-parser:parse-autodesk-help-url *url*))
+
+(acad-help-parser:autodesk-help-descriptor-product *descriptor*)
+;; => "ACD"
+
+(acad-help-parser:autodesk-help-descriptor-release *descriptor*)
+;; => "2027"
+
+(acad-help-parser:autodesk-help-descriptor-language *descriptor*)
+;; => "ENU"
+
+(acad-help-parser:autodesk-help-descriptor-guid *descriptor*)
+;; => "GUID-18ADF171-166F-4FF0-8ED6-5F83153A5649"
+
+(acad-help-parser:resolve-autodesk-article-url *url*)
+;; => "https://help.autodesk.com/cloudhelp/2027/ENU/AutoCAD-ActiveX-Reference/files/GUID-18ADF171-166F-4FF0-8ED6-5F83153A5649.htm"
+
+(defparameter *document*
+  (acad-help-parser:fetch-activex-document *url*))
+
+(defparameter *circle-from-document*
+  (acad-help-parser:parse-activex-class-document *document*))
 #+end_src
