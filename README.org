@@ -1,0 +1,27 @@
+#+TITLE: acad-help-parser
+
+Common Lisp parser for Autodesk ActiveX reference XHTML pages using Plump and CLSS.
+
+* Dependencies
+
+- plump
+- clss
+
+* Load
+
+#+begin_src lisp
+(ql:quickload :acad-help-parser)
+#+end_src
+
+* Example
+
+#+begin_src lisp
+(defparameter *circle*
+  (acad-help-parser:parse-activex-class #p"/path/to/circle.htm"))
+
+(acad-help-parser:activex-class-name *circle*)
+(acad-help-parser:activex-class-topic-id *circle*)
+
+(mapcar #'acad-help-parser:activex-member-name
+        (acad-help-parser:activex-class-methods *circle*))
+#+end_src
