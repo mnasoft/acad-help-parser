@@ -31,68 +31,75 @@
                     :test #'string-equal
                     :key (lambda (node)
                            (plump:attribute node "name")))))
-    (when node (plump:attribute node "content"))))
+    (when node
+      (plump:attribute node "content"))))
 
 (defun href-guid (href)
   (when href
     (let ((end (search ".htm" href :test #'char-equal)))
-      (when (and end (>= end 5)
+      (when (and end
+                 (>= end 5)
                  (string-equal "GUID-" href :end2 5))
         (subseq href 0 end)))))
 
 (defun parse-member (node kind)
-  (make-instance 'activex-member
-                 :name (node-text node)
-                 :guid (href-guid (plump:attribute node "href"))
-                 :kind kind))
+  (let ((href (plump:attribute node "href")))
+    (make-instance 'activex-member
+                   :name (node-text node)
+                   :guid (href-guid href)
+                   :kind kind)))
 
 (defun parse-member-column (td kind)
   (loop for link in (select "a" td)
-        when (href-guid (plump:attribute link "href"))
+        for guid = (href-guid (plump:attribute link "href"))
+        when guid
           collect (parse-member link kind)))
 
 (defun parse-members (root)
-  (let ((table
-          (find-if
-           (lambda (table)
-             (let ((text (node-text table)))
-               (and text (search "Methods" text)
-                    (search "Properties" text)
-                    (search "Events" text))))
-           (select "table" root))))
+  (let* ((tables (select "table" root))
+         (table
+           (find-if
+            (lambda (table)
+              (let ((text (node-text table)))
+                (and text
+                     (search "Methods" text)
+                     (search "Properties" text)
+                     (search "Events" text))))
+            tables)))
     (unless table
       (return-from parse-members (values nil nil nil)))
-    (let* ((data-row
+    (let* ((rows (select "tr" table))
+           (data-row
              (find-if (lambda (row)
                         (= 3 (length (select "td" row))))
-                      (select "tr" table)))
+                      rows))
            (columns (and data-row (select "td" data-row))))
-      (if (and columns (= (length columns) 3))
-          (values (parse-member-column (first columns) :method)
-                  (parse-member-column (second columns) :property)
-                  (parse-member-column (third columns) :event))
+      (if (= (length columns) 3)
+          (values
+           (parse-member-column (first columns) :method)
+           (parse-member-column (second columns) :property)
+           (parse-member-column (third columns) :event))
           (values nil nil nil)))))
 
 (defun class-name-from-document (root)
   (loop for row in (select "tr" root)
         for cells = (select "td" row)
         when (and (>= (length cells) 2)
-                  (string-equal "Class Name" (node-text (first cells))))
+                  (string-equal "Class Name"
+                                (node-text (first cells))))
           return (node-text (second cells))))
 
-(defun parse-activex-class-document (root)
-  (multiple-value-bind (methods properties events)
-      (parse-members root)
-    (make-instance 'activex-class
-                   :name (class-name-from-document root)
-                   :title (node-text (select-one "title" root))
-                   :topic-id (meta-content root "topicid")
-                   :context-id (meta-content root "contextid")
-                   :description (meta-content root "description")
-                   :methods methods
-                   :properties properties
-                   :events events)))
-
-(defun parse-activex-class (source)
-  "Parse an Autodesk ActiveX page from a pathname, stream, or markup string."
-  (parse-activex-class-document (plump:parse source)))
+(defun parse-activex-class (pathname)
+  (let ((root (plump:parse pathname)))
+    (multiple-value-bind (methods properties events)
+        (parse-members root)
+      (make-instance
+       'activex-class
+       :name (class-name-from-document root)
+       :title (node-text (select-one "title" root))
+       :topic-id (meta-content root "topicid")
+       :context-id (meta-content root "contextid")
+       :description (meta-content root "description")
+       :methods methods
+       :properties properties
+       :events events))))
