@@ -3,23 +3,19 @@
 (in-package #:acad-help-parser)
 
 (defun fetch-dom-with-nyxt
-    (buffer &key iframe wait
-                 (timeout 30)
-                 (interval 0.1))
-  "Return current DOM of BUFFER as an HTML string.
+    (buffer &key
+              iframe
+              wait
+              (timeout 30)
+              (interval 0.1))
 
-When IFRAME is non-NIL, return the DOM contained in that iframe.
-
-When WAIT is true, wait until the requested iframe document
-becomes available."
-
-  (when (and wait iframe)
+  (when wait
     (unless (wait-for-dom-with-nyxt
              buffer
-             :iframe iframe
+             :iframe (or iframe "#ui-content-frame")
              :timeout timeout
              :interval interval)
-      (error "Timed out waiting for iframe ~S." iframe)))
+      (error "Timed out waiting for Autodesk document.")))
 
   (nyxt:ffi-buffer-evaluate-javascript
    buffer
@@ -27,15 +23,21 @@ becomes available."
        (format nil
                "(function () {
                   const frame = document.querySelector(~S);
-                  if (!frame)
-                    throw new Error('iframe not found');
-                  if (!frame.contentDocument)
-                    throw new Error('iframe contentDocument unavailable');
-                  return frame.contentDocument.documentElement.outerHTML;
+
+                  if (frame &&
+                      frame.contentDocument &&
+                      frame.contentDocument.querySelector(
+                        '.referencebody-adsk'))
+                    return frame.contentDocument.documentElement.outerHTML;
+
+                  if (document.querySelector('.referencebody-adsk'))
+                    return document.documentElement.outerHTML;
+
+                  throw new Error(
+                    'Autodesk ActiveX document not found');
                 })()"
                iframe)
        "document.documentElement.outerHTML")))
-
 
 (defun fetch-activex-class-with-nyxt
     (buffer &key
@@ -86,7 +88,7 @@ Return NIL when no matching buffer exists."
               (iframe "#ui-content-frame")
               (timeout 30)
               (interval 0.1))
-  "Wait until Autodesk ActiveX document is loaded into IFRAME."
+  "Wait until an Autodesk ActiveX document is available."
 
   (let ((deadline (+ (get-internal-real-time)
                      (* timeout internal-time-units-per-second))))
@@ -97,17 +99,18 @@ Return NIL when no matching buffer exists."
            (format nil
                    "(function () {
                       const frame = document.querySelector(~S);
-                      if (!frame || !frame.contentDocument)
-                        return false;
 
-                      const doc = frame.contentDocument;
+                      const frameReady =
+                        frame &&
+                        frame.contentDocument &&
+                        frame.contentDocument.querySelector(
+                          '.referencebody-adsk');
 
-                      return !!(
-                        doc.documentElement &&
-                        doc.body &&
-                        doc.querySelector('meta[name=\"topicid\"]') &&
-                        doc.querySelector('.referencebody-adsk')
-                      );
+                      const documentReady =
+                        document.querySelector(
+                          '.referencebody-adsk');
+
+                      return !!(frameReady || documentReady);
                     })()"
                    iframe))
         (return t))
