@@ -2,37 +2,6 @@
 
 (in-package #:acad-help-parser)
 
-(defun wait-for-dom-with-nyxt
-    (buffer &key
-              (iframe "#ui-content-frame")
-              (timeout 30)
-              (interval 0.1))
-  "Wait until IFRAME in BUFFER contains a loaded document.
-
-Return T when ready, NIL on timeout."
-
-  (let ((deadline (+ (get-internal-real-time)
-                     (* timeout internal-time-units-per-second))))
-    (loop
-      (when
-          (nyxt:ffi-buffer-evaluate-javascript
-           buffer
-           (format nil
-                   "(function () {
-                      const frame = document.querySelector(~S);
-                      return !!(frame &&
-                                frame.contentDocument &&
-                                frame.contentDocument.documentElement &&
-                                frame.contentDocument.body);
-                    })()"
-                   iframe))
-        (return t))
-
-      (when (>= (get-internal-real-time) deadline)
-        (return nil))
-
-      (sleep interval))))
-
 (defun fetch-dom-with-nyxt
     (buffer &key iframe wait
                  (timeout 30)
@@ -101,16 +70,49 @@ Return NIL when no matching buffer exists."
            (wait t)
            (timeout 60)
            (interval 0.1))
-  "Open URL in a new Nyxt buffer and parse the ActiveX class.
-
-When WAIT is true, wait for the Autodesk content iframe to become
-available.  Return the parsed ACTIVEX-CLASS object."
+  "Open URL in a new focused Nyxt buffer and parse the ActiveX class."
 
   (let ((buffer
-          (nyxt:make-buffer
+          (nyxt:make-buffer-focus
            :url (nyxt:url url))))
     (fetch-activex-class-with-nyxt
      buffer
      :wait wait
      :timeout timeout
      :interval interval)))
+
+(defun wait-for-dom-with-nyxt
+    (buffer &key
+              (iframe "#ui-content-frame")
+              (timeout 30)
+              (interval 0.1))
+  "Wait until Autodesk ActiveX document is loaded into IFRAME."
+
+  (let ((deadline (+ (get-internal-real-time)
+                     (* timeout internal-time-units-per-second))))
+    (loop
+      (when
+          (nyxt:ffi-buffer-evaluate-javascript
+           buffer
+           (format nil
+                   "(function () {
+                      const frame = document.querySelector(~S);
+                      if (!frame || !frame.contentDocument)
+                        return false;
+
+                      const doc = frame.contentDocument;
+
+                      return !!(
+                        doc.documentElement &&
+                        doc.body &&
+                        doc.querySelector('meta[name=\"topicid\"]') &&
+                        doc.querySelector('.referencebody-adsk')
+                      );
+                    })()"
+                   iframe))
+        (return t))
+
+      (when (>= (get-internal-real-time) deadline)
+        (return nil))
+
+      (sleep interval))))
