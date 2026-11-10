@@ -19,7 +19,10 @@
            #:resolve-autodesk-article-url
            #:fetch-activex-document
            #:fetch-activex-class)
-    (:export #:fetch-dom-with-nyxt
-             #:fetch-activex-class-with-nyxt))
+  (:export #:fetch-dom-with-nyxt
+           #:fetch-activex-class-with-nyxt
+           #:find-buffer-with-nyxt
+           #:fetch-activex-class-with-nyxt-url
+           ))
 
 (in-package #:acad-help-parser)
