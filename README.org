@@ -1,35 +1,530 @@
-#+TITLE: acad-help-parser
-* Load
-#+begin_src lisp
-(ql:quickload :acad-help-parser)
-#+end_src
-* Example
-#+begin_src lisp
-(defparameter *url* "https://help.autodesk.com/view/ACD/2027/ENU/?guid=GUID-18ADF171-166F-4FF0-8ED6-5F83153A5649")
-(defparameter *circle* (acad-help-parser:fetch-activex-class *url*))
-(acad-help-parser:activex-class-name *circle*)
-;; => "AcadCircle"
-#+end_src
-* Parser note
-Version 0.2.2 uses =plump:next-element= to skip whitespace text nodes between the =dt= "Class Name" and its =dd= value.
+#+TITLE: acad-help-parser: Nyxt integration
+#+AUTHOR: mna
 
-* Printed representation
+* Назначение
 
-Classes print their member names grouped as methods, properties and events.
-Members print their kind, name and GUID.
+Интеграция =acad-help-parser= с Nyxt позволяет загружать JavaScript-зависимые страницы Autodesk Help, получать фактический DOM после выполнения сценариев и разбирать ActiveX-документацию через Plump.
+
+Рабочая цепочка:
+
+#+begin_example
+Emacs / SLY
+    |
+    v
+Slynk :4008
+    |
+    v
+Nyxt
+    |
+    v
+JavaScript / DOM
+    |
+    v
+fetch-dom-with-nyxt
+    |
+    v
+Plump
+    |
+    v
+parse-activex-class-document
+#+end_example
+
+* Подключение Emacs/SLY к Nyxt
+
+** Запуск встроенного REPL Nyxt
+
+В Nyxt:
+
+#+begin_example
+Ctrl+Space
+repl
+#+end_example
+
+** Запуск Slynk
+
+В REPL Nyxt:
 
 #+begin_src lisp
-*circle*
-;; #<ACTIVEX-CLASS AcadCircle
-;;   topic-id: GUID-18ADF171-166F-4FF0-8ED6-5F83153A5649
-;;   methods (...):
-;;     ArrayPolar
-;;     ArrayRectangular
-;;     ...
-;;   properties (...):
-;;     Application
-;;     Area
-;;     ...
-;;   events (1):
-;;     Modified>
+(progn
+  (asdf:load-system :slynk)
+  (slynk:create-server :port 4008 :dont-close t))
 #+end_src
+
+Проверка порта из терминала:
+
+#+begin_src sh
+ss -ltnp | grep 4008
+#+end_src
+
+Ожидается слушающий сокет процесса =nyxt= на =127.0.0.1:4008=.
+
+В Emacs:
+
+#+begin_example
+M-x sly-connect
+Host: 127.0.0.1
+Port: 4008
+#+end_example
+
+После подключения REPL должен иметь приглашение:
+
+#+begin_example
+NYXT-USER>
+#+end_example
+
+Проверка:
+
+#+begin_src lisp
+(nyxt:current-buffer)
+#+end_src
+
+* Quicklisp в процессе Nyxt
+
+Проверить наличие Quicklisp:
+
+#+begin_src lisp
+(find-package :ql)
+#+end_src
+
+Если Quicklisp ещё не загружен:
+
+#+begin_src lisp
+(load #P"/home/mna/quicklisp/setup.lisp")
+#+end_src
+
+После этого:
+
+#+begin_src lisp
+(find-package :ql)
+#+end_src
+
+должен вернуть пакет =QUICKLISP-CLIENT=.
+
+* Настройка ASDF source registry
+
+Для рекурсивного поиска систем в =~/quicklisp/local-projects/=:
+
+#+begin_src lisp
+(asdf:initialize-source-registry
+ '(:source-registry
+   (:tree "/home/mna/quicklisp/local-projects/")
+   :inherit-configuration))
+#+end_src
+
+Проверка текущего параметра:
+
+#+begin_src lisp
+asdf/source-registry:*source-registry-parameter*
+#+end_src
+
+Ожидается:
+
+#+begin_src lisp
+(:source-registry
+ (:tree "/home/mna/quicklisp/local-projects/")
+ :inherit-configuration)
+#+end_src
+
+Проверка системы:
+
+#+begin_src lisp
+(asdf:find-system :acad-help-parser nil)
+#+end_src
+
+Проверка найденного ASDF-файла:
+
+#+begin_src lisp
+(asdf:system-source-file
+ (asdf:find-system :acad-help-parser))
+#+end_src
+
+Для текущего проекта ожидается:
+
+#+begin_example
+/home/mna/quicklisp/local-projects/acad/acad-help-parser/acad-help-parser.asd
+#+end_example
+
+* Загрузка систем
+
+#+begin_src lisp
+(asdf:load-system :acad-help-parser)
+(asdf:load-system :acad-help-parser/nyxt)
+#+end_src
+
+* Работа с DOM Nyxt
+
+** Текущий буфер
+
+#+begin_src lisp
+(nyxt:current-buffer)
+#+end_src
+
+Проверка заголовка страницы:
+
+#+begin_src lisp
+(nyxt:ffi-buffer-evaluate-javascript
+ (nyxt:current-buffer)
+ "document.title")
+#+end_src
+
+** Поиск буфера по заголовку
+
+#+begin_src lisp
+(acad-help-parser:find-buffer-with-nyxt
+ "Help: Ellipse Object (ActiveX)")
+#+end_src
+
+** Получение и разбор ActiveX-класса
+
+Из конкретного буфера:
+
+#+begin_src lisp
+(acad-help-parser:fetch-activex-class-with-nyxt
+ (nyxt:current-buffer)
+ :wait t
+ :timeout 60)
+#+end_src
+
+По URL:
+
+#+begin_src lisp
+(acad-help-parser:fetch-activex-class-with-nyxt-url
+ "https://help.autodesk.com/view/ACD/2015/ENU/?guid=GUID-85D3077C-DAE6-4BB7-BB69-E8A8BD10FEA5"
+ :wait t
+ :timeout 60)
+#+end_src
+
+Для Autodesk Help поддерживаются обе обнаруженные структуры DOM:
+
+#+begin_example
+2015/2016:
+  document -> #ui-content-frame -> .referencebody-adsk
+
+2017:
+  document -> .referencebody-adsk
+#+end_example
+
+Для страниц, где =meta[name="topicid"]= отсутствует, GUID берётся как fallback из =document.location.href=.
+
+* Управление буферами Nyxt
+
+Создать новый буфер по URL и сделать его текущим:
+
+#+begin_src lisp
+(defparameter *buffer*
+  (nyxt:make-buffer-focus
+   :url (nyxt:url
+         "https://help.autodesk.com/view/ACD/2015/ENU/?guid=GUID-85D3077C-DAE6-4BB7-BB69-E8A8BD10FEA5")))
+#+end_src
+
+Проверка:
+
+#+begin_src lisp
+(eq *buffer* (nyxt:current-buffer))
+#+end_src
+
+Закрыть текущий отображаемый буфер:
+
+#+begin_src lisp
+(nyxt:delete-current-buffer)
+#+end_src
+
+* FiveAM-тесты
+
+Nyxt-интеграция проверяется отдельной ASDF-системой:
+
+#+begin_example
+acad-help-parser/nyxt/tests
+#+end_example
+
+Запуск через основную Nyxt-подсистему:
+
+#+begin_src lisp
+(asdf:test-system :acad-help-parser/nyxt)
+#+end_src
+
+Проверенные URL =AcadEllipse= для релизов 2015, 2016 и 2017 должны давать объект типа =ACTIVEX-CLASS= с GUID:
+
+#+begin_example
+GUID-85D3077C-DAE6-4BB7-BB69-E8A8BD10FEA5
+#+end_example
+
+Последний проверенный результат:
+
+#+begin_example
+Running test suite ACAD-HELP-PARSER/NYXT
+ Running test ELLIPSE-2015 ..
+ Running test ELLIPSE-2016 ..
+ Running test ELLIPSE-2017 ..
+ Did 6 checks.
+    Pass: 6 (100%)
+    Skip: 0 (0%)
+    Fail: 0 (0%)
+#+end_example
+
+* Примеры команд
+
+** Быстрая инициализация Nyxt для работы из Emacs
+
+Встроенный REPL Nyxt:
+
+#+begin_src lisp
+(progn
+  (load #P"/home/mna/quicklisp/setup.lisp")
+  (asdf:initialize-source-registry
+   '(:source-registry
+     (:tree "/home/mna/quicklisp/local-projects/")
+     :inherit-configuration))
+  (asdf:load-system :slynk)
+  (slynk:create-server :port 4008 :dont-close t))
+#+end_src
+
+В терминале:
+
+#+begin_src sh
+ss -ltnp 'sport = :4008'
+#+end_src
+
+В Emacs:
+
+#+begin_example
+M-x sly-connect RET
+127.0.0.1 RET
+4008 RET
+#+end_example
+
+** Проверка среды из SLY
+
+#+begin_src lisp
+(find-package :ql)
+(asdf:find-system :acad-help-parser nil)
+(asdf:find-system :acad-help-parser/nyxt nil)
+#+end_src
+
+Посмотреть источник найденной системы:
+
+#+begin_src lisp
+(asdf:system-source-file
+ (asdf:find-system :acad-help-parser))
+#+end_src
+
+Загрузить проект:
+
+#+begin_src lisp
+(asdf:load-system :acad-help-parser)
+(asdf:load-system :acad-help-parser/nyxt)
+#+end_src
+
+** Просмотр открытых буферов
+
+#+begin_src lisp
+(nyxt:buffer-list)
+#+end_src
+
+Вывести заголовки всех буферов:
+
+#+begin_src lisp
+(loop for buffer in (nyxt:buffer-list)
+      collect
+      (list buffer
+            (nyxt:ffi-buffer-evaluate-javascript
+             buffer
+             "document.title")))
+#+end_src
+
+Текущий буфер и его заголовок:
+
+#+begin_src lisp
+(nyxt:current-buffer)
+
+(nyxt:ffi-buffer-evaluate-javascript
+ (nyxt:current-buffer)
+ "document.title")
+#+end_src
+
+** Открытие Autodesk URL
+
+Открыть URL в новом буфере и сделать его текущим:
+
+#+begin_src lisp
+(defparameter *buffer*
+  (nyxt:make-buffer-focus
+   :url
+   (nyxt:url
+    "https://help.autodesk.com/view/ACD/2015/ENU/?guid=GUID-85D3077C-DAE6-4BB7-BB69-E8A8BD10FEA5")))
+#+end_src
+
+Убедиться, что созданный буфер текущий:
+
+#+begin_src lisp
+(eq *buffer* (nyxt:current-buffer))
+#+end_src
+
+Получить фактический URL документа:
+
+#+begin_src lisp
+(nyxt:ffi-buffer-evaluate-javascript
+ (nyxt:current-buffer)
+ "document.location.href")
+#+end_src
+
+Закрыть текущий буфер:
+
+#+begin_src lisp
+(nyxt:delete-current-buffer)
+#+end_src
+
+** Получение DOM
+
+DOM верхнего документа:
+
+#+begin_src lisp
+(nyxt:ffi-buffer-evaluate-javascript
+ (nyxt:current-buffer)
+ "document.documentElement.outerHTML")
+#+end_src
+
+DOM старого Autodesk iframe:
+
+#+begin_src lisp
+(nyxt:ffi-buffer-evaluate-javascript
+ (nyxt:current-buffer)
+ "document.getElementById('ui-content-frame').contentDocument.documentElement.outerHTML")
+#+end_src
+
+Через API проекта:
+
+#+begin_src lisp
+(defparameter *html*
+  (acad-help-parser:fetch-dom-with-nyxt
+   (nyxt:current-buffer)
+   :iframe "#ui-content-frame"
+   :wait t
+   :timeout 60))
+#+end_src
+
+Разобрать HTML через Plump:
+
+#+begin_src lisp
+(defparameter *document*
+  (plump:parse *html*))
+#+end_src
+
+** Проверка элементов DOM
+
+Заголовки разделов:
+
+#+begin_src lisp
+(loop for node in (acad-help-parser::select "h2" *document*)
+      collect (acad-help-parser::node-text node))
+#+end_src
+
+Ожидаемый пример:
+
+#+begin_example
+("Class Information" "Members" "Remarks")
+#+end_example
+
+Поля Class Information:
+
+#+begin_src lisp
+(loop for node in (acad-help-parser::select "dt" *document*)
+      collect (acad-help-parser::node-text node))
+#+end_src
+
+Ожидаемый пример:
+
+#+begin_example
+("Class Name" "Object Inheritance" "Create Using" "Access Via")
+#+end_example
+
+Ссылки members через обход class-selector CLSS:
+
+#+begin_src lisp
+(mapcar #'acad-help-parser::node-text
+        (acad-help-parser::select-xref
+         *document*
+         "table a"))
+#+end_src
+
+** Разбор ActiveX-класса
+
+Разобрать текущий буфер:
+
+#+begin_src lisp
+(acad-help-parser:fetch-activex-class-with-nyxt
+ (nyxt:current-buffer)
+ :wait t
+ :timeout 60)
+#+end_src
+
+Найти буфер по заголовку и разобрать:
+
+#+begin_src lisp
+(acad-help-parser:fetch-activex-class-with-nyxt
+ (acad-help-parser:find-buffer-with-nyxt
+  "Help: Ellipse Object (ActiveX)")
+ :wait t
+ :timeout 60)
+#+end_src
+
+Загрузить и разобрать непосредственно по URL:
+
+#+begin_src lisp
+(acad-help-parser:fetch-activex-class-with-nyxt-url
+ "https://help.autodesk.com/view/ACD/2015/ENU/?guid=GUID-85D3077C-DAE6-4BB7-BB69-E8A8BD10FEA5"
+ :wait t
+ :timeout 60)
+#+end_src
+
+** Диагностика структуры Autodesk Help
+
+Проверить старый iframe:
+
+#+begin_src lisp
+(nyxt:ffi-buffer-evaluate-javascript
+ (nyxt:current-buffer)
+ "document.getElementById('ui-content-frame') !== null")
+#+end_src
+
+Проверить наличие тела ActiveX-статьи в основном DOM:
+
+#+begin_src lisp
+(nyxt:ffi-buffer-evaluate-javascript
+ (nyxt:current-buffer)
+ "document.querySelector('.referencebody-adsk') !== null")
+#+end_src
+
+Проверить =topicid=:
+
+#+begin_src lisp
+(nyxt:ffi-buffer-evaluate-javascript
+ (nyxt:current-buffer)
+ "document.querySelector('meta[name=\"topicid\"]')?.content")
+#+end_src
+
+Для новых страниц, где =topicid= отсутствует, проверить URL:
+
+#+begin_src lisp
+(nyxt:ffi-buffer-evaluate-javascript
+ (nyxt:current-buffer)
+ "document.location.href")
+#+end_src
+
+** FiveAM
+
+Запустить все Nyxt integration tests:
+
+#+begin_src lisp
+(asdf:test-system :acad-help-parser/nyxt)
+#+end_src
+
+Запустить FiveAM suite напрямую:
+
+#+begin_src lisp
+(fiveam:run!
+ 'acad-help-parser/tests::acad-help-parser/nyxt)
+#+end_src
+
+Текущий набор проверяет =AcadEllipse= для 2015, 2016 и 2017, включая тип объекта и GUID.
+
