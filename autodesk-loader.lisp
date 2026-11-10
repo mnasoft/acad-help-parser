@@ -1,63 +1,7 @@
 (in-package #:acad-help-parser)
-
-(defparameter *autodesk-bookmark-endpoint*
-  "https://beehive.autodesk.com/community/service/rest/cloudhelp/resource/cloudhelpchannel/bookmark/")
-
-(defstruct autodesk-help-descriptor product release language guid)
-
-(defun parse-autodesk-help-url (url)
-  "Extract product, release, language, and GUID from an Autodesk view URL."
-  (multiple-value-bind (match registers)
-      (cl-ppcre:scan-to-strings
-       "(?i)^https://help\\.autodesk\\.com/view/([^/?#]+)/([^/?#]+)/([^/?#]+)/?"
-       url)
-    (declare (ignore match))
-    (unless registers
-      (error "Unsupported Autodesk help URL: ~A" url))
-    (multiple-value-bind (guid-match guid-registers)
-        (cl-ppcre:scan-to-strings "(?i)(?:[?&])guid=([^&#]+)" url)
-      (declare (ignore guid-match))
-      (unless guid-registers
-        (error "The Autodesk help URL has no guid parameter: ~A" url))
-      (make-autodesk-help-descriptor
-       :product (aref registers 0)
-       :release (aref registers 1)
-       :language (aref registers 2)
-       :guid (aref guid-registers 0)))))
-
-(defun autodesk-bookmark-url (descriptor)
-  "Build the Autodesk bookmark service URL for DESCRIPTOR."
-  (format nil "~A?p=~A&v=~A&l=~A&guid=~A"
-          *autodesk-bookmark-endpoint*
-          (autodesk-help-descriptor-product descriptor)
-          (autodesk-help-descriptor-release descriptor)
-          (autodesk-help-descriptor-language descriptor)
-          (autodesk-help-descriptor-guid descriptor)))
-
-(defun http-get-string (url)
-  (multiple-value-bind (body status)
-      (dex:get url :force-string t)
-    (unless (= status 200)
-      (error "HTTP request failed with status ~D: ~A" status url))
-    body))
-
-(defun resolve-autodesk-article-url (view-url)
-  "Resolve an Athena view URL to the underlying CloudHelp XHTML URL."
-  (let* ((descriptor (parse-autodesk-help-url view-url))
-         (json (http-get-string (autodesk-bookmark-url descriptor)))
-         (response (jonathan:parse json :as :hash-table))
-         (article-url (gethash "url" response)))
-    (unless (and article-url (stringp article-url))
-      (error "Autodesk bookmark response contains no article URL for ~A"
-             view-url))
-    article-url))
-
-(defun fetch-activex-document (view-url)
-  "Download VIEW-URL's underlying XHTML and return a Plump DOM root."
-  (plump:parse
-   (http-get-string (resolve-autodesk-article-url view-url))))
-
-(defun fetch-activex-class (view-url)
-  "Download and parse an Autodesk ActiveX class page."
-  (parse-activex-class-document
-   (fetch-activex-document view-url)))
+(defparameter *autodesk-bookmark-endpoint* "https://beehive.autodesk.com/community/service/rest/cloudhelp/resource/cloudhelpchannel/bookmark/")
+(defun parse-autodesk-help-url (url) (multiple-value-bind (m r) (cl-ppcre:scan-to-strings "(?i)^https://help\\.autodesk\\.com/view/([^/?#]+)/([^/?#]+)/([^/?#]+)/?" url) (declare (ignore m)) (unless r (error "Unsupported Autodesk URL")) (multiple-value-bind (gm gr) (cl-ppcre:scan-to-strings "(?i)(?:[?&])guid=([^&#]+)" url) (declare (ignore gm)) (unless gr (error "No guid")) (list :product (aref r 0) :release (aref r 1) :language (aref r 2) :guid (aref gr 0)))))
+(defun http-get-string (u) (multiple-value-bind (b s) (dex:get u :force-string t) (unless (= s 200) (error "HTTP ~D: ~A" s u)) b))
+(defun resolve-autodesk-article-url (url) (let* ((d (parse-autodesk-help-url url)) (u (format nil "~A?p=~A&v=~A&l=~A&guid=~A" *autodesk-bookmark-endpoint* (getf d :product) (getf d :release) (getf d :language) (getf d :guid))) (j (jonathan:parse (http-get-string u) :as :hash-table))) (or (gethash "url" j) (error "No article URL"))))
+(defun fetch-activex-document (url) (plump:parse (http-get-string (resolve-autodesk-article-url url))))
+(defun fetch-activex-class (url) (parse-activex-class-document (fetch-activex-document url)))
