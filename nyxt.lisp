@@ -2,6 +2,15 @@
 
 (in-package #:acad-help-parser)
 
+(defun guid-from-url (url)
+  (multiple-value-bind (match registers)
+      (cl-ppcre:scan-to-strings
+       "[?&]guid=(GUID-[0-9A-Fa-f-]+)"
+       url)
+    (declare (ignore match))
+    (when registers
+      (aref registers 0))))
+
 (defun fetch-dom-with-nyxt
     (buffer &key
               iframe
@@ -44,17 +53,30 @@
               (wait nil)
               (timeout 30)
               (interval 0.1))
-  "Parse the ActiveX class displayed in BUFFER.
+  "Parse the ActiveX class displayed in BUFFER."
 
-When WAIT is true, wait for the Autodesk content iframe."
-  (parse-activex-class-document
-   (plump:parse
-    (fetch-dom-with-nyxt
-     buffer
-     :iframe "#ui-content-frame"
-     :wait wait
-     :timeout timeout
-     :interval interval))))
+  (let* ((html
+           (fetch-dom-with-nyxt
+            buffer
+            :iframe "#ui-content-frame"
+            :wait wait
+            :timeout timeout
+            :interval interval))
+
+         (document
+           (plump:parse html))
+
+         (url
+           (nyxt:ffi-buffer-evaluate-javascript
+            buffer
+            "document.location.href"))
+
+         (topic-id
+           (guid-from-url url)))
+
+    (parse-activex-class-document
+     document
+     :topic-id topic-id)))
 
 (defun find-buffer-with-nyxt (title)
   "Return the first Nyxt buffer whose document title equals TITLE.

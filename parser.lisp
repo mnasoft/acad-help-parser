@@ -32,7 +32,20 @@
 (defun parse-members (r) (let ((table (find-if (lambda (x) (let ((s (node-text x))) (and s (search "Methods" s) (search "Properties" s) (search "Events" s)))) (select "table" r)))) (unless table (return-from parse-members (values nil nil nil))) (let* ((row (find-if (lambda (x) (= 3 (length (select "td" x)))) (select "tr" table))) (c (and row (select "td" row)))) (if (and c (= 3 (length c))) (values (parse-member-column (first c) :method) (parse-member-column (second c) :property) (parse-member-column (third c) :event)) (values nil nil nil)))))
 (defun definition-value (r term) (loop for dt in (select "dt" r) for text = (node-text dt) when (and text (string-equal term text)) return (plump:next-element dt)))
 (defun class-name-from-document (r) (let ((dd (definition-value r "Class Name"))) (when dd (let ((n (select-one "samp" dd))) (and n (node-text n))))))
-(defun parse-activex-class-document (r) (multiple-value-bind (m p e) (parse-members r) (make-instance 'activex-class :name (class-name-from-document r) :title (node-text (select-one "title" r)) :topic-id (meta-content r "topicid") :context-id (meta-content r "contextid") :description (meta-content r "description") :methods m :properties p :events e)))
+(defun parse-activex-class-document (r &key topic-id)
+  (multiple-value-bind (m p e)
+      (parse-members r)
+    (make-instance 'activex-class
+                   :name (class-name-from-document r)
+                   :title (node-text (select-one "title" r))
+                   :topic-id (or (meta-content r "topicid")
+                                 topic-id)
+                   :context-id (meta-content r "contextid")
+                   :description (meta-content r "description")
+                   :methods m
+                   :properties p
+                   :events e)))
+
 (defun parse-activex-class (source) (parse-activex-class-document (plump:parse source)))
 
 (defun select-xref (root &optional (selector "a"))

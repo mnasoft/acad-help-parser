@@ -1,6 +1,6 @@
 (asdf:defsystem #:acad-help-parser
   :description "Parser and loader for Autodesk ActiveX reference pages"
-  :version "0.2.5"
+  :version "0.2.6"
   :serial t
   :depends-on (#:plump #:clss #:dexador #:jonathan #:cl-ppcre)
   :components ((:file "package")

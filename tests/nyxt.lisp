@@ -4,10 +4,20 @@
 
 (in-suite :acad-help-parser/nyxt)
 
+(defparameter +ellipse-guid+
+  "GUID-85D3077C-DAE6-4BB7-BB69-E8A8BD10FEA5")
+
+(defun check-ellipse (object)
+  (is (typep object 'acad-help-parser:activex-class))
+  (is (string=
+       +ellipse-guid+
+       (acad-help-parser:activex-class-topic-id object))))
+
 (defun ellipse-url (release)
   (format nil
           "https://help.autodesk.com/view/ACD/~A/ENU/?guid=GUID-85D3077C-DAE6-4BB7-BB69-E8A8BD10FEA5"
           release))
+
 
 (test ellipse-2015
   (let ((object
@@ -15,7 +25,7 @@
            (ellipse-url 2015)
            :wait t
            :timeout 60)))
-    (is (not (null object)))))
+    (check-ellipse object)))
 
 (test ellipse-2016
   (let ((object
@@ -23,7 +33,7 @@
            (ellipse-url 2016)
            :wait t
            :timeout 60)))
-    (is (not (null object)))))
+    (check-ellipse object)))
 
 (test ellipse-2017
   (let ((object
@@ -31,4 +41,4 @@
            (ellipse-url 2017)
            :wait t
            :timeout 60)))
-    (is (not (null object)))))
+    (check-ellipse object)))
